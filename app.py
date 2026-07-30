@@ -3,8 +3,9 @@ import pandas as pd
 import plotly.graph_objects as go
 import yfinance as yf
 import urllib.parse
-import feedparser
-from datetime import datetime
+import urllib.request
+import xml.etree.ElementTree as ET
+import json
 
 st.set_page_config(page_title="My Taiwan Tech Dashboard", layout="wide")
 st.title("🚀 科技供應鏈與陣地戰情報儀表板")
@@ -25,6 +26,35 @@ INITIAL_STOCKS = {
 if 'stocks' not in st.session_state:
     st.session_state.stocks = INITIAL_STOCKS.copy()
 
+# --- 台股中文名稱查詢函數 (自動查詢 TWSE / TPEx API) ---
+@st.cache_data(ttl=86400)
+def get_tw_stock_name(code):
+    try:
+        # 向證交所開放 API 查詢股票名稱
+        url = f"https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=3) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            for item in data:
+                if item.get('公司代號') == code:
+                    return item.get('公司簡稱', '')
+    except:
+        pass
+
+    try:
+        # 若上市查無，向櫃買中心開放 API 查詢
+        url_otc = f"https://www.tpex.org.tw/openapi/v1/mops_t187ap03_R"
+        req_otc = urllib.request.Request(url_otc, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req_otc, timeout=3) as response:
+            data_otc = json.loads(response.read().decode('utf-8'))
+            for item in data_otc:
+                if item.get('公司代號') == code:
+                    return item.get('公司簡稱', '')
+    except:
+        pass
+        
+    return ""
+
 # --- 側邊欄控制區 ---
 st.sidebar.header("🎯 供應鏈標的選單")
 
@@ -38,7 +68,7 @@ st.sidebar.markdown("---")
 
 # 快速新增標的
 st.sidebar.subheader("➕ 快速新增標的")
-input_code = st.sidebar.text_input("輸入台股代號 (例: 3324)", placeholder="例如: 2308")
+input_code = st.sidebar.text_input("輸入台股代號 (例: 2408)", placeholder="例如: 2408")
 
 if st.sidebar.button("確認新增"):
     code = input_code.strip()
@@ -57,7 +87,13 @@ if st.sidebar.button("確認新增"):
                 final_ticker = None
 
         if final_ticker:
-            label = f"{code}"
+            # 抓取中文簡稱
+            cn_name = get_tw_stock_name(code)
+            if cn_name:
+                label = f"{code} ({cn_name})"
+            else:
+                label = f"{code}"
+
             st.session_state.stocks[label] = final_ticker
             st.sidebar.success(f"已成功新增: {label}")
             st.rerun()
@@ -72,21 +108,25 @@ if st.sidebar.button(f"🗑️ 刪除目前選中的「{selected_name}」"):
         st.sidebar.success(f"已刪除 {selected_name}")
         st.rerun()
 
-# --- Google News RSS 爬蟲函數 ---
+# --- 原生 XML 解析 Google News RSS ---
 @st.cache_data(ttl=1800)
-def fetch_google_news(query):
-    # 將標的關鍵字（如：2368 金像電）轉為網址編碼
+def fetch_google_news_native(query):
     encoded_query = urllib.parse.quote(query)
     rss_url = f"https://news.google.com/rss/search?q={encoded_query}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
-    feed = feedparser.parse(rss_url)
-    
     articles = []
-    for entry in feed.entries[:6]:  # 取前 6 則精準新聞
-        articles.append({
-            'title': entry.title,
-            'link': entry.link,
-            'published': entry.get('published', '')
-        })
+    try:
+        req = urllib.request.Request(rss_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            xml_data = response.read()
+            root = ET.fromstring(xml_data)
+            
+            for item in root.findall('.//item')[:6]:
+                title = item.find('title').text if item.find('title') is not None else "無標題"
+                link = item.find('link').text if item.find('link') is not None else "#"
+                pub_date = item.find('pubDate').text if item.find('pubDate') is not None else ""
+                articles.append({'title': title, 'link': link, 'published': pub_date})
+    except Exception as e:
+        pass
     return articles
 
 # --- 行情與機構資料抓取 ---
@@ -207,7 +247,7 @@ if not df.empty:
     st.markdown("---")
 
     # 📰 模組 3：精簡版 Google News 折疊選單
-    news_list = fetch_google_news(selected_name)
+    news_list = fetch_google_news_native(selected_name)
     
     with st.expander(f"📰 查看「{selected_name}」最新市場新聞與即時動態 ({len(news_list)} 則)"):
         if news_list:
