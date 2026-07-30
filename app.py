@@ -7,11 +7,14 @@ import urllib.request
 import xml.etree.ElementTree as ET
 import json
 
-st.set_page_config(page_title="My Taiwan Tech Dashboard", layout="wide")
-st.title("🚀 科技供應鏈與陣地戰情報儀表板")
+# 1. 網頁分頁標題改為 JFDboard
+st.set_page_config(page_title="JFDboard", layout="wide")
+
+# 2. 主畫面大標題改為 JFDboard
+st.title("🚀 JFDboard")
 st.caption("對標 SemiAnalysis 拆解邏輯 | 整合動態均線 (MA)、機構目標價與精準新聞情報")
 
-# 1. 預設選單
+# 預設選單
 INITIAL_STOCKS = {
     "2368 (金像電)": "2368.TW",
     "5498 (凱崴)": "5498.TWO",
@@ -30,7 +33,6 @@ if 'stocks' not in st.session_state:
 @st.cache_data(ttl=86400)
 def get_tw_stock_name(code):
     try:
-        # 向證交所開放 API 查詢股票名稱
         url = f"https://openapi.twse.com.tw/v1/opendata/t187ap03_L"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=3) as response:
@@ -42,7 +44,6 @@ def get_tw_stock_name(code):
         pass
 
     try:
-        # 若上市查無，向櫃買中心開放 API 查詢
         url_otc = f"https://www.tpex.org.tw/openapi/v1/mops_t187ap03_R"
         req_otc = urllib.request.Request(url_otc, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req_otc, timeout=3) as response:
@@ -87,7 +88,6 @@ if st.sidebar.button("確認新增"):
                 final_ticker = None
 
         if final_ticker:
-            # 抓取中文簡稱
             cn_name = get_tw_stock_name(code)
             if cn_name:
                 label = f"{code} ({cn_name})"
